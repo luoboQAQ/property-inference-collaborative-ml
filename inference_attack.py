@@ -41,8 +41,8 @@ def inference_attack(data, norm=True, scale=True):
     clf.fit(X_train, y_train)
     y_score = clf.predict_proba(X_test)[:, 1]
     y_pred = clf.predict(X_test)
-    print classification_report(y_true=y_test, y_pred=y_pred)
-    print 'AUC: ', roc_auc_score(y_true=y_test, y_score=y_score)
+    print (classification_report(y_true=y_test, y_pred=y_pred))
+    print ('AUC: ', roc_auc_score(y_true=y_test, y_score=y_score))
 
 
 def evaluate_lfw(task='gender', attr="race", prop_id=2, n_workers=2, k=5, alpha_B=0.):

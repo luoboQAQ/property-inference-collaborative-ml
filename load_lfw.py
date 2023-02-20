@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from sklearn.datasets import fetch_lfw_people
 from sklearn.model_selection import train_test_split
 from scipy.misc import imread, imresize
@@ -56,6 +57,7 @@ def load_lfw_binary_attr(attr_type='gender'):
     attr = pd.read_csv(DATA_DIR + 'lfw_attributes.txt', delimiter='\t')
     if attr_type == 'gender':
         gender = np.asarray(attr['Male'])
+        # the column of Male > 0 set 1, <=0 set 0
         gender = np.sign(gender)
         gender[gender == -1] = 0
         # print len(gender), np.mean(gender == 1), np.mean(gender == 0)
@@ -73,6 +75,7 @@ def load_lfw_multi_attr(attr_type='race', thresh=-0.1):
     attr = pd.read_csv(DATA_DIR + 'lfw_attributes.txt', delimiter='\t')
 
     if attr_type == 'race':
+        # extract 'Asian', 'White', 'Black' from lfw_attributes
         attr = np.asarray(attr[MULTI_ATTRS['race']])
     elif attr_type == 'glasses':
         attr = np.asarray(attr[MULTI_ATTRS['glasses']])
@@ -89,6 +92,7 @@ def load_lfw_multi_attr(attr_type='race', thresh=-0.1):
         if np.max(a) < thresh:  # score too low for an attribute
             continue
         indices.append(i)
+        # get indice for the max value in a, 删除不容易判断的数据 属性< -0.1
         labels.append(np.argmax(a))
 
     return dict(zip(indices, labels))
@@ -104,6 +108,7 @@ MULTI_ATTRS = {'race': ['Asian', 'White', 'Black'],
 
 
 def load_lfw_attr(attr='gender'):
+    #load_lfw_binary_attr to load gender, load_lfw_multi_attr to load race
     return load_lfw_binary_attr(attr) if attr in BINARY_ATTRS else load_lfw_multi_attr(attr)
 
 
@@ -115,6 +120,7 @@ def load_lfw_with_attrs(attr1='gender', attr2=None):
     with np.load(DATA_DIR + 'lfw_images.npz') as f:
         imgs = f['arr_0'].transpose(0, 3, 1, 2)
 
+    #extract gender imformation from lfw_attributes.txt as a dict, male 1,female 0
     index_label_1 = load_lfw_attr(attr1)
     if attr2 is None:
         indices = np.sort(index_label_1.keys())
@@ -123,8 +129,11 @@ def load_lfw_with_attrs(attr1='gender', attr2=None):
         return imgs, labels
 
     index_label_2 = load_lfw_attr(attr2)
+    # 提取出来最容易判读的数据集的公共目录，common_indices 的size 即是11644
     common_indices = np.intersect1d(index_label_1.keys(), index_label_2.keys())
+    # 提取出图像
     imgs = imgs[common_indices] / np.float32(255.0)
+    # 返回实验需要使用的数据集的labels1性别信息，labels2 :'Asian', 'White', 'Black'信息
     labels1 = np.asarray([index_label_1[i] for i in common_indices], dtype=np.int32)
     labels2 = np.asarray([index_label_2[i] for i in common_indices], dtype=np.int32)
 

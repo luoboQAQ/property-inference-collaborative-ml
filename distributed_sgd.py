@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import time
@@ -93,16 +94,19 @@ def train_lfw(task='gender', attr="race", prop_id=2, p_prop=0.5, n_workers=2, nu
     x, y, prop = load_lfw_with_attrs(task, attr)
     prop_dict = MULTI_ATTRS[attr] if attr in MULTI_ATTRS else BINARY_ATTRS[attr]
 
-    print 'Training {} and infering {} property {} with {} data'.format(task, attr, prop_dict[prop_id], len(x))
+    print('Training {} and infering {} property {} with {} data'.format(task, attr, prop_dict[prop_id], len(x)))
 
     x = np.asarray(x, dtype=np.float32)
     y = np.asarray(y, dtype=np.int32)
     prop = np.asarray(prop, dtype=np.int32)
 
     indices = np.arange(len(x))
+    # 获得race是black的索引,len(prop_indices) = 559   
     prop_indices = indices[prop == prop_id]
+    # 其余的是asian 和 white
     nonprop_indices = indices[prop != prop_id]
 
+    # 把是black的标记为1，不是black的标记为0
     prop[prop_indices] = 1
     prop[nonprop_indices] = 0
 
@@ -111,7 +115,7 @@ def train_lfw(task='gender', attr="race", prop_id=2, p_prop=0.5, n_workers=2, nu
     if n_workers > 2:
         filename += '_n{}'.format(n_workers)
 
-    train_multi_task_ps((x, y, prop), input_shape=(None, 3, 62, 47), p_prop=p_prop, balance=balance,
+    train_multi_task_ps((x, y, prop), input_shape=(None, 3, 62, 47), p_prop=p_prop,
                         filename=filename, n_workers=n_workers, alpha_B=alpha_B, k=k,
                         num_iteration=num_iteration, victim_all_nonprop=victim_all_nonprop,
                         train_size=train_size)
@@ -146,10 +150,16 @@ def build_worker_attacker(input_shape, classes=2, infer_classes=2, lr=None, seed
         train_fn = theano.function([input_var, target_var, target_var_B], loss, updates=updates)
         return params, train_fn
 
+    #params: [W, b, W, b, W, b, W, b, W, b, W, b]
     grads = T.grad(loss, params)
+    # 取出最后两层 [W, b]
     params_B = params[-2:]
+    # 删除最后两层 params:[W, b, W, b, W, b, W, b, W, b]，和其他victim正好相同的网络结构
     params = params[:-2]
+    # 提取最后两层
+    # grads_B:[dot.0, InplaceDimShuffle{1}.0]
     grads_B = grads[-2:]
+    # 删除最后两层
     grads = grads[:-2]
 
     p_idx = 0
@@ -160,11 +170,14 @@ def build_worker_attacker(input_shape, classes=2, infer_classes=2, lr=None, seed
         grads_dict[key] = g
 
     grad_fn = theano.function([input_var, target_var, target_var_B], grads_dict)
+    # 正好是删去的最后两层的网络结构grads_B:[dot.0, InplaceDimShuffle{1}.0]
     grads_B_fn = theano.function([input_var, target_var, target_var_B], grads_B)
 
     test_acc = T.sum(T.eq(T.argmax(prediction_B, axis=1), target_var_B), dtype=theano.config.floatX)
+    # val_fn 为攻击者私有的验证属性分类的正确性模型
     val_fn = theano.function([input_var, target_var_B], [loss_B, test_acc])
 
+    # params [W, b, W, b, W, b, W, b, W, b]
     return params, grad_fn, params_B, grads_B_fn, val_fn
 
 
@@ -213,8 +226,9 @@ def mix_inf_data(p_inputs, p_targets, np_inputs, np_targets, batchsize, mix_p=0.
     p_batchsize = int(mix_p * batchsize)
     np_batchsize = batchsize - p_batchsize
 
-    print 'Mixing {} prop data with {} non prop data'.format(p_batchsize, np_batchsize)
+    print ('Mixing {} prop data with {} non prop data'.format(p_batchsize, np_batchsize))
 
+    #根据mix_p的大小，决定一批次32个数据，多少个有属性，多少个没有属性，然后链接到一起
     p_gen = inf_data(p_inputs, p_targets, p_batchsize, shuffle=True)
     np_gen = inf_data(np_inputs, np_targets, np_batchsize, shuffle=True)
 
@@ -320,6 +334,7 @@ def collect_grads(grads_dict, param_names, avg_pool=False, pool_thresh=5000):
 
         g.append(grad.flatten())
 
+    # 将g变成一维数组
     g = np.concatenate(g)
     return g
 
@@ -327,6 +342,7 @@ def collect_grads(grads_dict, param_names, avg_pool=False, pool_thresh=5000):
 def aggregate_dicts(dicts, param_names):
     aggr_dict = dicts[0]
 
+    # 将字典中的列表转换为np array
     for key in aggr_dict:
         aggr_dict[key] = np.asarray(aggr_dict[key])
 
@@ -341,6 +357,8 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
                         input_shape=(None, 3, 50, 50), n_workers=2, lr=0.01, attacker_id=1, filename="data",
                         p_prop=0.5, alpha_B=0., victim_all_nonprop=True, k=5):
 
+    #splitted_X[0]包含的是victim的数据，splitted_X[1]包含的是attacker的数据
+    #splitted_X[0][0]带有prop数据，splitted_X[0][1]不带有prop数据
     splitted_X, splitted_y, X_test, y_test = prepare_data_biased(data, train_size, n_workers, seed=seed,
                                                                  victim_all_nonprop=victim_all_nonprop,
                                                                  p_prop=p_prop)
@@ -391,7 +409,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
             p, f, b_params, b_grad_fn, pval_fn = build_worker_attacker(input_shape, classes=classes, alph_B=alpha_B,
                                                                        infer_classes=len(np.unique(split_y[:, 1])))
             data_gen = inf_data(splitted_X[i], split_y[:, 0], y_b=split_y[:, 1], batchsize=32, shuffle=True)
-            print 'Participant {} with {} data'.format(i, len(splitted_X[i]))
+            print ('Participant {} with {} data'.format(i, len(splitted_X[i])))
             data_gens.append(data_gen)
         elif i == victim_id:
             p, f = build_worker(input_shape, classes=classes)
@@ -404,46 +422,56 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
             data_gen_np = inf_data(splitted_X[i][1], splitted_y[i][1][:, 0], batchsize=32, shuffle=True)
 
             data_gens.append(data_gen)
-            print 'Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1]))
+            print ('Participant {} with {} data'.format(i, len(splitted_X[i][0]) + len(splitted_X[i][1])))
         else:
             p, f = build_worker(input_shape, classes=classes)
             data_gen = inf_data(splitted_X[i], splitted_y[i][:, 0], batchsize=32, shuffle=True)
-            print 'Participant {} with {} data'.format(i, len(splitted_X[i]))
+            print ('Participant {} with {} data'.format(i, len(splitted_X[i])))
             data_gens.append(data_gen)
 
         worker_params.append(p)
         worker_grad_fns.append(f)
 
+    # worker_params：[[W, b, W, b, W, b, W, b, W, ...], [W, b, W, b, W, b, W, b, W, ...]]结构相同，主任务可以正常训练
+    #global_params ：[W, b, W, b, W, b, W, b, W, b]
     set_local(global_params, worker_params)
 
     train_pg, train_npg = [], []
     test_pg, test_npg = [], []
+    # 这里将全部11644个参数重新赋值给X,y
     X, y, _ = data
 
     # attacker's aux data
     X_adv, y_adv = splitted_X[attacker_id], splitted_y[attacker_id]
+    # y_adv :shape:(7590, 2)。将第0列分为gender分给y_adv，第一列分为race分给p_adv
     p_adv = y_adv[:, 1]
     y_adv = y_adv[:, 0]
 
     indices = np.arange(len(X_adv))
+    # 提取出attacker的119的prop data
     prop_indices = indices[p_adv == 1]
+    # 提取出attacker 的7741个no prop data
     nonprop_indices = indices[p_adv == 0]
+    # 定义生成器mix_p=0.2，也就是 一会日志出现 Mixing 6 prop data with 26 non prop data
     adv_gen = mix_inf_data(X_adv[prop_indices], splitted_y[attacker_id][prop_indices],
                            X_adv[nonprop_indices], splitted_y[attacker_id][nonprop_indices], batchsize=32, mix_p=0.2)
 
+    # 将测试数据拼接到attacker train数据集上 X_adv size 7590 + 3494 = 11084,label y, property p size 也为11084
     X_adv = np.vstack([X_adv, X_test])
     y_adv = np.concatenate([y_adv, y_test])
     p_adv = np.concatenate([p_adv, p_test])
 
     indices = np.arange(len(p_adv))
+    # 599个black，280分给victim，119还在attacker，剩余160在test里面， 119+160 = 279.train_prop_indices size为279
     train_prop_indices = indices[p_adv == 1]
     train_prop_gen = inf_data(X_adv[train_prop_indices], y_adv[train_prop_indices], 32, shuffle=True)
 
     indices = np.arange(len(p_test))
     nonprop_indices = indices[p_test == 0]
+    # n_nonprop 为 3494-160，为3334，也就是不带属性black的测试数据为3334个
     n_nonprop = len(nonprop_indices)
 
-    print 'Attacker prop data {}, non prop data {}'.format(len(train_prop_indices), n_nonprop)
+    print ('Attacker prop data {}, non prop data {}'.format(len(train_prop_indices), n_nonprop))
     train_nonprop_gen = inf_data(X_test[nonprop_indices], y_test[nonprop_indices], 32, shuffle=True)
 
     train_mix_gens = []
@@ -455,6 +483,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
     start_time = time.time()
     for it in range(num_iteration):
         aggr_grad = []
+        # download 梯度
         set_local(global_params, worker_params)
 
         for i in range(n_workers):
@@ -468,6 +497,7 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
                 grads_dict = grad_fn(inputs, targets, targetsB)
             elif i == victim_id:
                 if it % k == 0:
+                    # 第一轮迭代的是有属性的280个victim data
                     inputs, targets = next(data_gen_p)
                 else:
                     inputs, targets = next(data_gen_np)
@@ -477,14 +507,17 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
                 grads_dict = grad_fn(inputs, targets)
 
             if i != attacker_id:
+                # 梯度列表，列表中每一项都是当前轮一批次的某个参与者的梯度变化
                 aggr_grad.append(grads_dict)
 
             grads = [grads_dict[name] for name in params_names]
+            # upload 梯度
             update_global(global_params, grads, lr)
 
         if it >= warm_up_iters:
             test_gs = aggregate_dicts(aggr_grad, param_names=params_names)
             if it % k == 0:
+                # 此时test_pg.append此test_gs
                 test_pg.append(test_gs)
             else:
                 test_npg.append(test_gs)
@@ -498,15 +531,18 @@ def train_multi_task_ps(data, num_iteration=6000, train_size=0.3, victim_id=0, s
                 gradient_getter_with_gen_multi(train_nonprop_gen, train_nonprop_gen, train_npg, global_grad_fn,
                                                iters=8, n_workers=n_workers, param_names=params_names)
             else:
+                # 带有属性的数据集训练两次，截取部分梯度保存在 train_pg里面
                 gradient_getter_with_gen(train_prop_gen, train_pg, global_grad_fn, iters=2,
                                          param_names=params_names)
+                #注意到iters=2，所以每次执行此函数train_pg新增两行梯度变化数据，现在总共执行4次，故有8行数据。
                 for train_mix_gen in train_mix_gens:
                     gradient_getter_with_gen(train_mix_gen, train_pg, global_grad_fn, iters=2,
                                              param_names=params_names)
-
+                # train_npg的行也为8，因为iters=8,他们的列都有5728，是部分梯度截取后的结果
                 gradient_getter_with_gen(train_nonprop_gen, train_npg, global_grad_fn, iters=8,
                                          param_names=params_names)
 
+        # 当it满足条件时候，就开始进行模型的验证
         if (it + 1) % 500 == 0 and it > 0:
             # And a full pass over the validation data:
             val_err = 0
